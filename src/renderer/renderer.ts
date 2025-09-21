@@ -88,151 +88,47 @@ interface SectionColors {
     [sectionName: string]: string;
 }
 
-// High-quality favicon function that prioritizes actual website favicons over generic letters
-// Extract the EXACT favicon from the webpage HTML - no generic letters!
+// Simplified favicon function - No CORS dependency, uses direct paths and reliable APIs only
+// Fixed 503 errors by removing unreliable CORS proxy services and HTML parsing
+// Now uses only direct favicon paths and stable APIs (Google, DuckDuckGo, FaviconKit)
 async function getHighQualityFavicon(url: string): Promise<string> {
     console.log(`🚀 FAVICON FUNCTION STARTED FOR: ${url}`);
     try {
         const domain = new URL(url).hostname;
         const protocol = new URL(url).protocol;
 
-        // Check cache first
+        // Check cache first (extended to 24 hours for better performance)
         const cached = faviconCache[domain];
-        const oneHour = 60 * 60 * 1000;
-        const maxAttempts = 3;
+        const twentyFourHours = 24 * 60 * 60 * 1000;
 
-        if (cached) {
-            const isRecent = (Date.now() - cached.timestamp) < oneHour;
-            const shouldRetry = cached.attempts < maxAttempts && cached.url.includes('duckduckgo.com');
-
-            if (isRecent && !shouldRetry) {
-                console.log(`Using cached favicon for ${domain}: ${cached.url}`);
-                return cached.url;
-            } else if (shouldRetry) {
-                console.log(`Retrying favicon extraction for ${domain} (attempt ${cached.attempts + 1})`);
-            }
+        if (cached && (Date.now() - cached.timestamp) < twentyFourHours) {
+            console.log(`Using cached favicon for ${domain}: ${cached.url}`);
+            return cached.url;
         }
 
-        console.log(`Extracting real favicon for: ${url}`);
+        console.log(`Finding favicon for: ${domain}`);
 
-        // STEP 1: Fetch the actual webpage HTML to extract favicon links
-        const corsProxies = [
-            `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-            `https://corsproxy.io/?${encodeURIComponent(url)}`,
-            `https://cors-anywhere.herokuapp.com/${url}`
-        ];
-
-        let htmlContent = null;
-        for (const proxyUrl of corsProxies) {
-            try {
-                console.log(`Trying to fetch HTML from: ${proxyUrl}`);
-                const response = await fetch(proxyUrl, {
-                    method: 'GET',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    }
-                });
-
-                if (response.ok) {
-                    if (proxyUrl.includes('allorigins.win')) {
-                        const data = await response.json();
-                        console.log(`AllOrigins response status:`, response.status);
-                        if (data.contents) {
-                            htmlContent = data.contents;
-                            break;
-                        }
-                    } else {
-                        htmlContent = await response.text();
-                        console.log(`Direct proxy response status:`, response.status);
-                        break;
-                    }
-                }
-            } catch (error) {
-                console.log(`Proxy ${proxyUrl} failed:`, error);
-                continue;
-            }
-        }
-
-        if (htmlContent) {
-            try {
-                // Parse the HTML to find favicon declarations
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(htmlContent, 'text/html');
-
-                // Look for favicon links in order of preference
-                const faviconSelectors = [
-                    'link[rel="icon"][type="image/svg+xml"]',  // SVG favicon (best quality)
-                    'link[rel="icon"][type="image/png"]',     // PNG favicon
-                    'link[rel="shortcut icon"]',              // Standard favicon
-                    'link[rel="icon"]',                       // Generic icon
-                    'link[rel="apple-touch-icon"]',           // Apple touch icon (often high quality)
-                    'link[rel="apple-touch-icon-precomposed"]', // Apple precomposed
-                    'meta[property="og:image"]'               // Open Graph image as fallback
-                ];
-
-                for (const selector of faviconSelectors) {
-                    const element = doc.querySelector(selector);
-                    if (element) {
-                        let faviconUrl = element.getAttribute('href') || element.getAttribute('content');
-                        if (faviconUrl) {
-                            // Convert relative URLs to absolute URLs
-                            if (faviconUrl.startsWith('//')) {
-                                faviconUrl = protocol + faviconUrl;
-                            } else if (faviconUrl.startsWith('/')) {
-                                faviconUrl = `${protocol}//${domain}${faviconUrl}`;
-                            } else if (!faviconUrl.startsWith('http')) {
-                                faviconUrl = `${protocol}//${domain}/${faviconUrl}`;
-                            }
-
-                            console.log(`Found favicon in HTML: ${faviconUrl}`);
-
-                            // Validate that this is actually an image
-                            try {
-                                const isValid = await validateImage(faviconUrl);
-                                if (isValid) {
-                                    console.log(`Found favicon from HTML: ${faviconUrl}`);
-                                    // Cache successful result
-                                    faviconCache[domain] = {
-                                        url: faviconUrl,
-                                        timestamp: Date.now(),
-                                        attempts: (cached?.attempts || 0) + 1
-                                    };
-                                    saveFaviconCache();
-                                    return faviconUrl;
-                                }
-                            } catch {
-                                continue;
-                            }
-                        }
-                    }
-                }
-            } catch (error) {
-                console.log(`HTML parsing failed: ${error}`);
-            }
-        } else {
-            console.log(`Failed to fetch HTML content from all proxy services`);
-        }
-
-        // STEP 2: Try common direct favicon paths on the website
+        // STEP 1: Try common direct favicon paths (most reliable)
         const directPaths = [
             `${protocol}//${domain}/favicon.svg`,    // SVG (best quality)
-            `${protocol}//${domain}/favicon.ico`,    // Standard
-            `${protocol}//${domain}/favicon.png`,    // PNG
+            `${protocol}//${domain}/favicon.ico`,    // Standard ICO
+            `${protocol}//${domain}/favicon.png`,    // PNG format
             `${protocol}//${domain}/apple-touch-icon.png`, // Apple (often high-res)
             `${protocol}//${domain}/apple-touch-icon-180x180.png`,
-            `${protocol}//${domain}/android-chrome-192x192.png`
+            `${protocol}//${domain}/android-chrome-192x192.png`,
+            `${protocol}//${domain}/icon-192x192.png`,
+            `${protocol}//${domain}/icon.png`
         ];
 
         for (const faviconPath of directPaths) {
             try {
                 const isValid = await validateImage(faviconPath);
                 if (isValid) {
-                    console.log(`Found direct favicon: ${faviconPath}`);
-                    // Cache successful result
+                    console.log(`✅ Found direct favicon: ${faviconPath}`);
                     faviconCache[domain] = {
                         url: faviconPath,
                         timestamp: Date.now(),
-                        attempts: (cached?.attempts || 0) + 1
+                        attempts: 1
                     };
                     saveFaviconCache();
                     return faviconPath;
@@ -242,108 +138,65 @@ async function getHighQualityFavicon(url: string): Promise<string> {
             }
         }
 
-        // STEP 3: Try multiple favicon API services
+        // STEP 2: Use reliable favicon API services (no CORS issues)
         const faviconApis = [
             {
-                name: 'Favicon Kit',
-                url: `https://api.faviconkit.com/${domain}/64`,
-                headers: {}
-            },
-            {
                 name: 'Google Favicon Service',
-                url: `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
-                headers: {}
+                url: `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
             },
             {
-                name: 'Clearbit Logo',
-                url: `https://logo.clearbit.com/${domain}`,
-                headers: {}
+                name: 'DuckDuckGo Icons',
+                url: `https://icons.duckduckgo.com/ip3/${domain}.ico`
             },
             {
-                name: 'Favicon Grabber',
-                url: `https://favicongrabber.com/api/grab/${domain}`,
-                headers: {}
+                name: 'Favicon Kit',
+                url: `https://api.faviconkit.com/${domain}/64`
             }
         ];
 
         for (const api of faviconApis) {
             try {
-                console.log(`Trying ${api.name} API for ${domain}`);
-
-                if (api.name === 'Favicon Grabber') {
-                    // This API returns JSON with favicon URLs
-                    const response = await fetch(api.url);
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.icons && data.icons.length > 0) {
-                            // Try the largest available icon
-                            const bestIcon = data.icons.sort((a: any, b: any) =>
-                                (b.sizes || '0x0').split('x')[0] - (a.sizes || '0x0').split('x')[0]
-                            )[0];
-                            const isValid = await validateImage(bestIcon.src);
-                            if (isValid) {
-                                console.log(`${api.name} worked: ${bestIcon.src}`);
-                                // Cache successful result
-                                faviconCache[domain] = {
-                                    url: bestIcon.src,
-                                    timestamp: Date.now(),
-                                    attempts: (cached?.attempts || 0) + 1
-                                };
-                                saveFaviconCache();
-                                return bestIcon.src;
-                            }
-                        }
-                    }
-                } else {
-                    // Direct image URL APIs
-                    const isValid = await validateImage(api.url);
-                    if (isValid) {
-                        console.log(`${api.name} worked: ${api.url}`);
-                        // Cache successful result
-                        faviconCache[domain] = {
-                            url: api.url,
-                            timestamp: Date.now(),
-                            attempts: (cached?.attempts || 0) + 1
-                        };
-                        saveFaviconCache();
-                        return api.url;
-                    }
+                console.log(`Trying ${api.name} for ${domain}`);
+                const isValid = await validateImage(api.url);
+                if (isValid) {
+                    console.log(`✅ ${api.name} worked: ${api.url}`);
+                    faviconCache[domain] = {
+                        url: api.url,
+                        timestamp: Date.now(),
+                        attempts: 1
+                    };
+                    saveFaviconCache();
+                    return api.url;
                 }
             } catch (error) {
-                console.log(`${api.name} failed:`, error);
+                console.log(`❌ ${api.name} failed:`, error);
                 continue;
             }
         }
 
-        // STEP 4: Last resort - but log it
-        console.log(`No real favicon found for ${domain}, using DuckDuckGo fallback`);
+        // STEP 3: Final fallback to DuckDuckGo (most reliable)
+        console.log(`Using DuckDuckGo fallback for ${domain}`);
         const fallbackUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
 
-        // Cache fallback with attempt count
         faviconCache[domain] = {
             url: fallbackUrl,
             timestamp: Date.now(),
-            attempts: (cached?.attempts || 0) + 1
+            attempts: 1
         };
         saveFaviconCache();
-
         return fallbackUrl;
 
     } catch (error) {
         console.log(`❌ Favicon extraction error: ${error}`);
         const domain = new URL(url).hostname;
-        console.log(`🔄 Using fallback for: ${domain}`);
         const fallbackUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
 
-        // Cache error fallback
-        const cached = faviconCache[domain];
         faviconCache[domain] = {
             url: fallbackUrl,
             timestamp: Date.now(),
-            attempts: (cached?.attempts || 0) + 1
+            attempts: 1
         };
         saveFaviconCache();
-
         return fallbackUrl;
     }
 }
